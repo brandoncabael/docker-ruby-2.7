@@ -5,12 +5,10 @@ RUN set -eux; \
 	apt-get install -y --no-install-recommends \
 		bzip2 \
 		ca-certificates \
-		gcc \
 		libffi-dev \
 		libgmp-dev \
 		libssl-dev \
 		libyaml-dev \
-		make \
 		procps \
 		zlib1g-dev \
 	; \
@@ -29,10 +27,6 @@ ENV RUBY_MAJOR 2.7
 ENV RUBY_VERSION 2.7.1
 ENV RUBY_DOWNLOAD_SHA256 b224f9844646cc92765df8288a46838511c1cec5b550d8874bd4686a904fcee7
 
-# Download and install jemalloc 5.2.1 from source
-ADD https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2 ./jemalloc.tar.bz2
-RUN tar -xf ./jemalloc.tar.bz2 --no-same-owner && rm ./jemalloc.tar.bz2 && cd jemalloc-5.2.1 && ./configure && make && make install && cd ../ && rm -rf jemalloc-5.2.1
-
 # some of ruby's build scripts are written in ruby
 #   we purge system ruby later to make sure our final image uses what we just built
 RUN set -eux; \
@@ -43,6 +37,7 @@ RUN set -eux; \
 		autoconf \
 		bison \
 		dpkg-dev \
+		gcc \
 		libbz2-dev \
 		libgdbm-compat-dev \
 		libgdbm-dev \
@@ -51,11 +46,23 @@ RUN set -eux; \
 		libreadline-dev \
 		libxml2-dev \
 		libxslt-dev \
+		make \
 		ruby \
 		wget \
 		xz-utils \
 	; \
 	rm -rf /var/lib/apt/lists/*; \
+	\
+	wget -O jemalloc.tar.bz2 "https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"; \
+	\
+	mkdir -p /usr/src/jemalloc; \
+	tar -xf jemalloc.tar.bz2 -C /usr/src/jemalloc --strip-components=1 --no-same-owner; \
+	rm jemalloc.tar.bz2; \
+	\
+	cd usr/src/jemalloc; \
+	./configure; \
+	make -j "$(nproc)"; \
+	make install; \
 	\
 	wget -O ruby.tar.xz "https://cache.ruby-lang.org/pub/ruby/${RUBY_MAJOR%-rc}/ruby-$RUBY_VERSION.tar.xz"; \
 	echo "$RUBY_DOWNLOAD_SHA256 *ruby.tar.xz" | sha256sum --check --strict; \
@@ -81,7 +88,6 @@ RUN set -eux; \
 		--build="$gnuArch" \
 		--disable-install-doc \
 		--enable-shared \
-		--with-jemalloc \
 	; \
 	make -j "$(nproc)"; \
 	make install; \
@@ -99,6 +105,7 @@ RUN set -eux; \
 	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
 	\
 	cd /; \
+	rm -r /usr/src/jemalloc; \
 	rm -r /usr/src/ruby; \
 # verify we have no "ruby" packages installed
 	! dpkg -l | grep -i ruby; \
