@@ -27,6 +27,43 @@ ENV RUBY_MAJOR 2.7
 ENV RUBY_VERSION 2.7.1
 ENV RUBY_DOWNLOAD_SHA256 b224f9844646cc92765df8288a46838511c1cec5b550d8874bd4686a904fcee7
 
+# Download and install jemalloc from source
+RUN set -eux; \
+  \
+  savedAptMark="$(apt-mark showmanual)"; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+		gcc \
+		make \
+		wget \
+	; \
+	rm -rf /var/lib/apt/lists/*; \
+	\
+	wget -O jemalloc.tar.bz2 "https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"; \
+	\
+	mkdir -p /usr/src/jemalloc; \
+	tar -xf jemalloc.tar.bz2 -C /usr/src/jemalloc --strip-components=1 --no-same-owner; \
+	rm jemalloc.tar.bz2; \
+	\
+	cd usr/src/jemalloc; \
+	./configure; \
+	make -j "$(nproc)"; \
+	make install; \
+	\
+	apt-mark auto '.*' > /dev/null; \
+	apt-mark manual $savedAptMark > /dev/null; \
+	find /usr/local -type f -executable -not \( -name '*tkinter*' \) -exec ldd '{}' ';' \
+		| awk '/=>/ { print $(NF-1) }' \
+		| sort -u \
+		| xargs -r dpkg-query --search \
+		| cut -d: -f1 \
+		| sort -u \
+		| xargs -r apt-mark manual \
+	; \
+	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+	\
+	cd /; \
+	rm -r /usr/src/jemalloc;
 # some of ruby's build scripts are written in ruby
 #   we purge system ruby later to make sure our final image uses what we just built
 RUN set -eux; \
@@ -53,17 +90,6 @@ RUN set -eux; \
 	; \
 	rm -rf /var/lib/apt/lists/*; \
 	\
-	wget -O jemalloc.tar.bz2 "https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"; \
-	\
-	mkdir -p /usr/src/jemalloc; \
-	tar -xf jemalloc.tar.bz2 -C /usr/src/jemalloc --strip-components=1 --no-same-owner; \
-	rm jemalloc.tar.bz2; \
-	\
-	cd usr/src/jemalloc; \
-	./configure; \
-	make -j "$(nproc)"; \
-	make install; \
-	\
 	wget -O ruby.tar.xz "https://cache.ruby-lang.org/pub/ruby/${RUBY_MAJOR%-rc}/ruby-$RUBY_VERSION.tar.xz"; \
 	echo "$RUBY_DOWNLOAD_SHA256 *ruby.tar.xz" | sha256sum --check --strict; \
 	\
@@ -88,6 +114,7 @@ RUN set -eux; \
 		--build="$gnuArch" \
 		--disable-install-doc \
 		--enable-shared \
+		--with-jemalloc \
 	; \
 	make -j "$(nproc)"; \
 	make install; \
@@ -105,7 +132,6 @@ RUN set -eux; \
 	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
 	\
 	cd /; \
-	rm -r /usr/src/jemalloc; \
 	rm -r /usr/src/ruby; \
 # verify we have no "ruby" packages installed
 	! dpkg -l | grep -i ruby; \
